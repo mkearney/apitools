@@ -1,0 +1,53 @@
+---
+title: "apiPKG"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+A demo API package created by [apitools](..)
+
+### Document package
+
+```{r, eval=FALSE}
+devtools::document()
+```
+
+### Call various APIs
+
+```{r}
+library(apiPKG)
+api_call("somethingcool")
+api_call("articles/headlines")
+```
+
+### Along with any number of parameters
+
+```{r}
+api_call("articles/headlines", n = 500, filter = "en")
+```
+
+### Integrate API keys/tokens
+
+```{r}
+api_call(
+  "articles/headlines", 
+  n = 500, 
+  filter = "en", 
+  token = apiPKG_token()
+)
+```
+
+### Send the actual request
+
+```{r, eval=FALSE}
+rurl <- api_call(
+  "articles/headlines", 
+  n = 500, 
+  filter = "en", 
+  token = apiPKG_token()
+)
+r <- httr::GET(rurl)
+```
