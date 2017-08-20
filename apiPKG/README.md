@@ -1,7 +1,7 @@
 apiPKG
 ================
 
-A demo API package created by [apitools](..)
+A demo API package created by [apitools](https://github.com/mkearney/apitools)
 
 ### Document package
 
