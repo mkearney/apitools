@@ -4,36 +4,55 @@
 #' new_api_pkg
 #'
 #' Automates the creation of new API packages.
+#'
+#' @param pkg Name of package.
+#' @param key Authorization key(s). In interactive sessions this defaults to
+#'   input supplied to the console.
+#' @param base Base URL to API. In interactive sessions this defaults to input
+#'   supplied to the console.
+#' @param version Version number for API. In interactive sessions this defaults
+#'   to input supplied to the console.
+#' @return Creates new R package with API funs skeleton.
 #' @export
-new_api_pkg <- function() {
-  pkg <- readline_(
-    "What's the name of the site hosting the API?",
-    "(what do you want to name the package?)"
-  )
+new_api_pkg <- function(pkg = NULL, key = NULL, base = NULL, version = NULL) {
+  if (is.null(pkg) %% interactive()) {
+    pkg <- readline_(
+      "What's the name of the site hosting the API?",
+      "(what do you want to name the package?)"
+    )
+  }
   dirs <- list.dirs(full.names = FALSE, recursive = FALSE)
-  if (pkg %in% dirs) {
+  pkg_path <- file.path(normalizePath("."), pkg)
+  if (!pkg %in% dirs) {
+    dir.create(pkg_path)
+  } else if (length(list.files(pkg) > 0L)) {
     stop("There's already a directory with that name.", call. = FALSE)
   }
-  pkg_path <- file.path(normalizePath("."), pkg)
-  dir.create(pkg_path)
   devtools::create(pkg_path)
-  choices <- c(
-    "Key (a single alphanumeric string)",
-    "Token (multiple keys/secrets)",
-    "None (no authorization method)"
-  )
-  abc <- menuline(
-    "Do you need a key or token to access the API? (select appropriate number)",
-    choices
-  )
   home_dir <- normalizePath("~")
   renv_pat <- file.path(home_dir, ".Renviron")
   check_renv(renv_pat)
-
+  if (is.null(key)) {
+    choices <- c(
+      "Key (a single alphanumeric string)",
+      "Token (multiple keys/secrets)",
+      "None (no authorization method)"
+    )
+    abc <- menuline(
+      "Do you need a key or token to access the API? (select appropriate number)",
+      choices
+    )
+  } else if (length(key) > 0L) {
+    abc <- 2L
+  } else if (identical(key, FALSE)) {
+    abc <- 3L
+  } else {
+    abs <- 1L
+  }
   ## if one single key
   if (abc == 1L) {
     ## get key
-    key <- readline_("What's your key?")
+    if (is.null(key)) key <- readline_("What's your key?")
     KEY_PAT <- paste0(toupper(pkg), "_KEY")
     ## set key
     .Internal(Sys.setenv(KEY_PAT, key))
@@ -53,14 +72,18 @@ new_api_pkg <- function() {
     )
   } else if (abc == 2L) {
     ## get number of keys
-    nkeys <- readline_("How many keys?")
+    if (is.null(key)) nkeys <- readline_("How many keys?")
     for (i in seq_len(nkeys)) {
       ## get key
-      key <- readline_(paste0("Enter key #", i))
+      if (is.null(key)) {
+        k <- readline_(paste0("Enter key #", i))
+      } else {
+        k <- key[i]
+      }
       KEY_PAT <- paste0(toupper(pkg), "_KEY_", i)
       ## set key
-      .Internal(Sys.setenv(KEY_PAT, key))
-      new_env_var <- paste0(KEY_PAT, "=", key)
+      .Internal(Sys.setenv(KEY_PAT, k))
+      new_env_var <- paste0(KEY_PAT, "=", k)
       ## save key
       cat(
         new_env_var,
@@ -95,10 +118,14 @@ new_api_pkg <- function() {
   scheme <- c("http", "https", "http")[abc]
 
   ## ask for base api url
-  base <- readline_("What's the base URL? (e.g., api.twitter.com)")
+  if (is.null(base)) {
+    base <- readline_("What's the base URL? (e.g., api.twitter.com)")
+  }
 
   ## ask for version
-  version <- readline_("What's the version? (e.g., v2.1)")
+  if (is.null(version)) {
+    version <- readline_("What's the version? (e.g., v2.1)")
+  }
 
   ## create pkg base url
   pkg_base_url <- paste0(pkg, "_base_url")
@@ -111,7 +138,6 @@ new_api_pkg <- function() {
 
   message("Package created!")
 }
-
 
 
 utils_funs <- function() {
@@ -127,12 +153,37 @@ readline_ <- function(...) {
 }
 
 check_renv <- function(path) {
+  if (!file.exists(path)) {
+    return(invisible())
+  }
   con <- file(path)
   x <- readLines(con, warn = FALSE)
   close(con)
+  x <- clean_renv(x)
   x <- paste(x, collapse = "\\n")
   cat(x, file = path, fill = TRUE)
   invisible()
+}
+
+clean_renv <- function(x) {
+  stopifnot(is.character(x))
+  ## remove incomplete vars
+  x <- grep("=$", x, value = TRUE, invert = TRUE)
+  ## split lines with double entries and fix into new vars
+  xs <- strsplit(x, "=")
+  vals <- sub("[^=]*=", "", x)
+  kp <- !grepl("[[:upper:]]{1,}=", vals)
+  if (sum(!kp) > 0L) {
+    m <- regexpr("[[:upper:]_]{1,}(?==)", x[!kp], perl = TRUE)
+    newlines <- paste0(regmatches(x[!kp], m), "=", sub(".*=", "", x[!kp]))
+    x <- x[kp]
+    x[(length(x) + 1):(length(x) + length(newlines))] <- newlines
+  }
+  ## remove double entries
+  xs <- strsplit(x, "=")
+  kp <- !duplicated(sapply(xs, "[[", 1))
+  x <- x[kp]
+  x
 }
 '
 }
@@ -174,6 +225,7 @@ _pkg__token <- function() {
 
 
 api_call_funs <- function(pkg, scheme, base, version) {
+  if (version == "") version <- NULL
   base_fun <- '
 api_base <- function() {
   baseurl <- getOption("_pkg_baseurl")
@@ -187,7 +239,8 @@ api_base <- function() {
     )
   }
   baseurl <- getOption("_pkg_baseurl")
-  paste0(baseurl$scheme, \"://\", baseurl$base, \"/\", baseurl$version)
+  base <- paste0(baseurl$scheme, \"://\", baseurl$base)
+  paste(c(base, baseurl$version), collapse = \"/\")
 }
 '
   base_fun <- gsub("\\_pkg\\_", pkg, base_fun)
@@ -227,7 +280,7 @@ api_call <- function(path, ...) {
   params <- c(...)
   params <- params[names(params) != \"\"]
   if (length(params) > 0L) {
-    params <- paste(names(params), params, sep = \"=\")
+    params <- paste0(names(params), \"=\", params)
     params <- paste(params, collapse = \"&\")
     params <- paste0(\"?\", params)
   }
@@ -240,6 +293,3 @@ api_call <- function(path, ...) {
     collapse = "\n"
   )
 }
-
-
-
